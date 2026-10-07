@@ -10,9 +10,10 @@ and headless-Chromium rendering. No AI image/video generation and no paid servic
 | USDZ for iPhone/iPad AR Quick Look | `public/models/watch-box.usdz` |
 | 72-frame spin, 5° steps, 1500×1500 WebP, white bg | `public/spin/frame_000.webp` … `frame_071.webp` |
 | Poster image | `public/spin/poster.webp` |
-| Seamless-loop MP4 | `public/spin/spin.mp4` |
+| Seamless-loop MP4 (+ VP9 WebM copy) | `public/spin/spin.mp4`, `public/spin/spin.webm` |
 | React component | `src/components/ProductSpin360/` |
 | Shopify Storefront loader | `src/lib/shopifyModel3d.ts` |
+| **Offline preview page**: double-click `preview/index.html`, no install or server needed | `preview/` (rebuild with `node model/scripts/build-preview.mjs`) |
 | Photo-vs-render comparisons (4 passes) | `docs/comparison/pass1` … `pass4`, report in `docs/ACCURACY_REPORT.md` |
 
 ---

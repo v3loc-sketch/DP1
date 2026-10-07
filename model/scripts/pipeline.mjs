@@ -171,6 +171,10 @@ async function cmdVideo(page) {
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-preset', 'slow', '-movflags', '+faststart',
     path.join(OUT_SPIN, 'spin.mp4')], { stdio: 'inherit' });
   console.log('spin.mp4', (fs.statSync(path.join(OUT_SPIN, 'spin.mp4')).size / 1024 / 1024).toFixed(2), 'MB');
+  // VP9 copy for browsers without H.264 (e.g. open-source Chromium builds)
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', '24', '-i', path.join(dir, 'f_%04d.png'),
+    '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '34', '-row-mt', '1', '-pix_fmt', 'yuv420p',
+    path.join(OUT_SPIN, 'spin.webm')], { stdio: 'inherit' });
 }
 
 // Close-up detail renders (closed lid unless noted) for hardware checks.
