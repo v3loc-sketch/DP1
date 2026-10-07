@@ -29,6 +29,7 @@ type ModelViewerElement = HTMLElement & {
   currentTime: number;
   canActivateAR: boolean;
   play: (opts?: { repetitions?: number; pingpong?: boolean }) => void;
+  updateComplete: Promise<unknown>;
   pause: () => void;
   availableAnimations: string[];
 };
@@ -103,17 +104,20 @@ export function ProductSpin360({
     };
   }, [use3d, mode, frames]);
 
-  const toggleLid = useCallback(() => {
+  const toggleLid = useCallback(async () => {
     const mv = mvRef.current;
     if (!mv || animating) return;
     const clip = lidOpen ? closeClip : openClip;
     if (mv.availableAnimations && !mv.availableAnimations.includes(clip)) return;
-    mv.animationName = clip;
-    mv.currentTime = 0;
-    // repetitions: 1 plays the clip once and holds its last frame
-    mv.play({ repetitions: 1 });
     setAnimating(true);
     setLidOpen(!lidOpen);
+    mv.animationName = clip;
+    // Changing animationName is applied in model-viewer's async update, which
+    // restarts the clip looping forever; wait for it, then play exactly once
+    // (repetitions: 1 holds the last frame).
+    await mv.updateComplete;
+    mv.currentTime = 0;
+    mv.play({ repetitions: 1 });
     // safety net in case the 'finished' event is missed (clip is 1.5 s)
     window.clearTimeout(unlockTimer.current);
     unlockTimer.current = window.setTimeout(() => setAnimating(false), 2500);

@@ -70,8 +70,13 @@ Remaining differences are listed below.
 
 - GLB passes the Khronos glTF-Validator: 0 errors, 0 warnings, 2 animations
   (`OpenLid`, `CloseLid`), 37 k triangles, 1.4 MB.
-- model-viewer loads it and lists `['OpenLid', 'CloseLid']`. **Tap to open lid** opens the lid
-  and holds the open pose; **Close lid** returns it to closed.
+- model-viewer loads it and lists `['OpenLid', 'CloseLid']`. **Tap to open lid** plays once
+  and holds the open pose (`currentTime` stays at 1.5 s); **Close lid** returns it to closed.
+  The test caught a bug, now fixed: setting `animationName` and calling `play()` in the same
+  tick made model-viewer loop the clip forever, so the component now awaits `updateComplete`
+  first. model-viewer 4.x never fired `finished` here, so a 2.5 s timer re-enables the button.
+- Screenshots: `docs/component_test.jpg` (closed → open → closed, then the image-sequence
+  fallback before and after a drag). Spin frames: `docs/spin_contact_sheet.jpg`.
 - `touch-action="pan-y"` is set, so vertical swipes scroll the page.
 - `?mode=images` fallback: dragging changes the frame.
 
