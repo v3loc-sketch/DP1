@@ -1,0 +1,32 @@
+{
+  "name": "watch-box-360",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "model:fit": "node model/scripts/pipeline.mjs fit",
+    "model:compare": "node model/scripts/pipeline.mjs compare",
+    "model:export": "node model/scripts/pipeline.mjs export",
+    "model:frames": "node model/scripts/pipeline.mjs frames",
+    "model:video": "node model/scripts/pipeline.mjs video",
+    "model:all": "node model/scripts/pipeline.mjs export frames video"
+  },
+  "dependencies": {
+    "@google/model-viewer": "^4.3.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "playwright": "^1.63.0",
+    "three": "^0.186.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3"
+  }
+}
