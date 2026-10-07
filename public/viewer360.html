@@ -1,0 +1,880 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watch Box 360°</title>
+<link rel="icon" href="data:,">
+<link rel="preload" as="image" href="spin/frame_000.webp" fetchpriority="high">
+
+<!-- ======================================================================
+     CSS: 360° product viewer
+     ====================================================================== -->
+<style>
+.pv360 {
+  --pv-bg: #ffffff;
+  --pv-accent: #1f4d3f;
+  --pv-ui: rgba(16, 22, 20, 0.82);
+  --pv-ui-fg: #ffffff;
+  --pv-radius: 12px;
+  position: relative;
+  width: 100%;
+  max-width: 900px;
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  overflow: hidden;
+  background: var(--pv-bg);
+  border-radius: var(--pv-radius);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  font: 500 13px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.pv360:fullscreen { max-width: none; aspect-ratio: auto; border-radius: 0; }
+.pv360:-webkit-full-screen { max-width: none; aspect-ratio: auto; border-radius: 0; }
+
+.pv360__stage {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+  touch-action: pan-y;          /* vertical page scroll survives; horizontal drags rotate */
+  outline: none;
+}
+.pv360__stage:focus-visible { box-shadow: inset 0 0 0 3px var(--pv-accent); border-radius: inherit; }
+.pv360[data-dragging] .pv360__stage { cursor: grabbing; }
+.pv360[data-zoomed] .pv360__stage { cursor: move; touch-action: none; }
+
+.pv360__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: auto;
+}
+
+.pv360__loader {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.06);
+  transition: opacity 0.4s ease 0.2s;
+  pointer-events: none;
+}
+.pv360__bar {
+  height: 100%;
+  width: 100%;
+  background: var(--pv-accent);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform 0.15s linear;
+}
+.pv360[data-ready] .pv360__loader { opacity: 0; }
+
+.pv360__msg {
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+  color: #5b6360;
+}
+.pv360[data-error] .pv360__msg { display: grid; }
+
+.pv360__hint {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--pv-ui);
+  color: var(--pv-ui-fg);
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.pv360__hint svg { width: 18px; height: 18px; flex: none; }
+.pv360[data-interacted] .pv360__hint { opacity: 0; }
+
+.pv360__zoomlevel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--pv-ui);
+  color: var(--pv-ui-fg);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.pv360[data-zoomed] .pv360__zoomlevel { opacity: 1; }
+
+.pv360__controls {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--pv-ui);
+}
+.pv360__btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--pv-ui-fg);
+  cursor: pointer;
+}
+.pv360__btn svg { width: 20px; height: 20px; pointer-events: none; }
+.pv360__btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+.pv360__btn:focus-visible { outline: 2px solid var(--pv-ui-fg); outline-offset: -3px; }
+.pv360__btn:disabled { opacity: 0.35; cursor: default; }
+.pv360__btn[aria-pressed="true"] { background: rgba(255, 255, 255, 0.22); }
+.pv360__btn[hidden] { display: none; }
+.pv360__btn .pv360__i-pause,
+.pv360__btn[aria-pressed="true"] .pv360__i-play { display: none; }
+.pv360__btn[aria-pressed="true"] .pv360__i-pause { display: block; }
+
+.pv360__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .pv360__btn { width: 44px; height: 44px; }   /* touch target */
+  .pv360__controls { bottom: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pv360 *, .pv360 *::before { transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ======================================================================
+     HTML: mount point (the viewer builds its own internals)
+     ====================================================================== -->
+<div id="watchbox-360" class="pv360">
+  <noscript><img src="spin/frame_000.webp" width="1500" height="1500" alt="Green aluminium 6-slot watch box" style="width:100%;height:auto"></noscript>
+</div>
+
+<!-- ======================================================================
+     JS: Product360Viewer (vanilla, no dependencies)
+     ====================================================================== -->
+<script>
+(function (global) {
+  'use strict';
+
+  var DEFAULTS = {
+    frames: [],             // REQUIRED. Ordered frame URLs, equal angular steps, full 360°.
+    zoomFrames: null,       // Optional. Same length/order as `frames`, higher resolution; loaded on demand when zoomed.
+    alt: 'Product',         // Accessible name.
+    startFrame: 0,
+    reverse: false,         // Flip drag direction if the sequence was shot counter-clockwise.
+    loop: true,             // Wrap past the last frame.
+    dragRevolution: 1,      // Revolutions per stage-width of horizontal drag.
+    maxZoom: 4,
+    zoomStep: 1.5,          // Multiplier for +/- buttons and keys.
+    doubleTapZoom: 2.5,
+    inertia: true,
+    autoplay: false,        // Ignored when the user prefers reduced motion.
+    autoplayFps: 18,
+    concurrency: 6,         // Parallel frame requests during preload.
+    hiResCache: 6,          // Hi-res zoom frames kept in memory (LRU).
+    lazy: true,             // Defer the full preload until the viewer nears the viewport.
+    crossOrigin: null,      // 'anonymous' if frames come from a CDN on another origin with CORS.
+    background: '#ffffff'   // Must match the frame background.
+  };
+
+  var ICONS = {
+    drag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8l4 4-4 4M7 8l-4 4 4 4M3 12h18"/></svg>',
+    play: '<svg class="pv360__i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>' +
+          '<svg class="pv360__i-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>',
+    zoomOut: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5M8 11h6"/></svg>',
+    zoomIn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5M8 11h6M11 8v6"/></svg>',
+    reset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+    fullscreen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>'
+  };
+
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function mod(a, n) { return ((a % n) + n) % n; }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // Resolves only once the bitmap is fully decoded, so the first draw of a frame never stalls or flashes.
+  function loadImage(src, crossOrigin) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      if (crossOrigin) img.crossOrigin = crossOrigin;
+      img.decoding = 'async';
+      img.src = src;
+      if (typeof img.decode === 'function') {
+        img.decode().then(function () { resolve(img); }, function () {
+          // decode() can reject for non-network reasons in some browsers; fall back to load state.
+          if (img.complete && img.naturalWidth) resolve(img);
+          else { img.onload = function () { resolve(img); }; img.onerror = function () { reject(new Error('Failed to load ' + src)); }; }
+        });
+      } else {
+        img.onload = function () { resolve(img); };
+        img.onerror = function () { reject(new Error('Failed to load ' + src)); };
+      }
+    });
+  }
+
+  // Coarse-to-fine order: a sparse ring of frames arrives first so rotation works before the full set is in.
+  function priorityOrder(n, start) {
+    var seen = new Uint8Array(n), order = [];
+    [8, 4, 2, 1].forEach(function (stride) {
+      for (var k = 0; k < n; k += stride) {
+        var i = mod(start + k, n);
+        if (!seen[i]) { seen[i] = 1; order.push(i); }
+      }
+    });
+    return order;
+  }
+
+  function Product360Viewer(root, options) {
+    if (!root) throw new Error('Product360Viewer: mount element not found');
+    var o = this.o = Object.assign({}, DEFAULTS, options);
+    if (!Array.isArray(o.frames) || !o.frames.length) throw new Error('Product360Viewer: options.frames must be a non-empty array of URLs');
+    if (o.zoomFrames && o.zoomFrames.length !== o.frames.length) throw new Error('Product360Viewer: zoomFrames must match frames in length');
+
+    this.root = root;
+    this.n = o.frames.length;
+    this.images = new Array(this.n);
+    this.loaded = 0;
+    this.failed = 0;
+    this.hiRes = new Map();
+    this.frame = mod(o.startFrame | 0, this.n);
+    this.pos = this.frame;
+    this.zoom = 1;
+    this.cx = 0.5;                  // view centre in normalised image coords
+    this.cy = 0.5;
+    this.aspect = 0;
+    this.fitW = 0;
+    this.fitH = 0;
+    this.pointers = new Map();
+    this.samples = [];
+    this.playing = false;
+    this._raf = 0;
+    this._anim = 0;
+    this._preloading = false;
+    this.reducedMotion = !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+    this._build();
+    this._bind();
+    this._loadFirst();
+  }
+
+  var P = Product360Viewer.prototype;
+
+  /* ---------- DOM ---------- */
+
+  P._build = function () {
+    var o = this.o, n = this.n;
+    this.root.classList.add('pv360');
+    this.root.innerHTML =
+      '<div class="pv360__stage" tabindex="0" role="slider" aria-roledescription="360 degree view"' +
+        ' aria-label="' + esc(o.alt) + '. Drag or use arrow keys to rotate; plus and minus to zoom."' +
+        ' aria-valuemin="0" aria-valuemax="' + (n - 1) + '" aria-valuenow="' + this.frame + '">' +
+        '<canvas class="pv360__canvas" aria-hidden="true"></canvas>' +
+      '</div>' +
+      '<div class="pv360__loader" role="progressbar" aria-label="Loading 360 degree view" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="pv360__bar"></div></div>' +
+      '<div class="pv360__msg" role="alert">The 360° view could not be loaded.</div>' +
+      '<div class="pv360__hint" aria-hidden="true">' + ICONS.drag + '<span>Drag to rotate · double-tap to zoom</span></div>' +
+      '<div class="pv360__zoomlevel" aria-hidden="true">100%</div>' +
+      '<div class="pv360__controls" role="toolbar" aria-label="360 degree view controls">' +
+        '<button type="button" class="pv360__btn" data-action="play" aria-pressed="false" aria-label="Auto-rotate">' + ICONS.play + '</button>' +
+        '<button type="button" class="pv360__btn" data-action="zoom-out" aria-label="Zoom out" disabled>' + ICONS.zoomOut + '</button>' +
+        '<button type="button" class="pv360__btn" data-action="zoom-in" aria-label="Zoom in">' + ICONS.zoomIn + '</button>' +
+        '<button type="button" class="pv360__btn" data-action="reset" aria-label="Reset view">' + ICONS.reset + '</button>' +
+        '<button type="button" class="pv360__btn" data-action="fullscreen" aria-pressed="false" aria-label="Full screen">' + ICONS.fullscreen + '</button>' +
+      '</div>';
+
+    var q = this.root.querySelector.bind(this.root);
+    this.stage = q('.pv360__stage');
+    this.canvas = q('.pv360__canvas');
+    this.ctx = this.canvas.getContext('2d', { alpha: false });
+    this.loader = q('.pv360__loader');
+    this.bar = q('.pv360__bar');
+    this.zoomLabel = q('.pv360__zoomlevel');
+    this.controls = q('.pv360__controls');
+    this.btn = {
+      play: q('[data-action="play"]'),
+      zoomIn: q('[data-action="zoom-in"]'),
+      zoomOut: q('[data-action="zoom-out"]'),
+      fullscreen: q('[data-action="fullscreen"]')
+    };
+    var fsSupported = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+    if (!fsSupported) this.btn.fullscreen.hidden = true;
+    if (this.reducedMotion) this.btn.play.hidden = true;
+  };
+
+  P._bind = function () {
+    var self = this, s = this.stage;
+    this._h = {
+      down: function (e) { self._onDown(e); },
+      move: function (e) { self._onMove(e); },
+      up: function (e) { self._onUp(e); },
+      wheel: function (e) { self._onWheel(e); },
+      key: function (e) { self._onKey(e); },
+      ctl: function (e) { self._onControl(e); },
+      fs: function () { self._onFullscreenChange(); },
+      noop: function (e) { e.preventDefault(); }
+    };
+    s.addEventListener('pointerdown', this._h.down);
+    s.addEventListener('pointermove', this._h.move);
+    s.addEventListener('pointerup', this._h.up);
+    s.addEventListener('pointercancel', this._h.up);
+    s.addEventListener('lostpointercapture', this._h.up);
+    s.addEventListener('wheel', this._h.wheel, { passive: false });
+    s.addEventListener('keydown', this._h.key);
+    s.addEventListener('contextmenu', this._h.noop);
+    s.addEventListener('dragstart', this._h.noop);
+    this.controls.addEventListener('click', this._h.ctl);
+    document.addEventListener('fullscreenchange', this._h.fs);
+    document.addEventListener('webkitfullscreenchange', this._h.fs);
+
+    // Size the backing store in exact device pixels so a frame maps 1:1 onto physical pixels.
+    this._ro = new ResizeObserver(function (entries) {
+      var e = entries[0], dpr = global.devicePixelRatio || 1;
+      var w = Math.round(e.contentRect.width * dpr), h = Math.round(e.contentRect.height * dpr);
+      var box = e.devicePixelContentBoxSize && e.devicePixelContentBoxSize[0];
+      // Prefer the browser's exact device-pixel snapping; ignore it if it disagrees with DPR (emulated DPR).
+      if (box && Math.abs(box.inlineSize - w) <= 1 && Math.abs(box.blockSize - h) <= 1) {
+        w = box.inlineSize;
+        h = box.blockSize;
+      }
+      self._resize(w, h);
+    });
+    try { this._ro.observe(this.canvas, { box: 'device-pixel-content-box' }); }
+    catch (err) { this._ro.observe(this.canvas); }
+    this._watchDpr();
+  };
+
+  // Re-rasterise when the window moves to a screen with a different pixel density or the page is zoomed.
+  P._watchDpr = function () {
+    if (!global.matchMedia) return;
+    var self = this;
+    var mq = global.matchMedia('(resolution: ' + (global.devicePixelRatio || 1) + 'dppx)');
+    if (!mq.addEventListener) return;
+    this._dprMq = mq;
+    this._h.dpr = function () {
+      mq.removeEventListener('change', self._h.dpr);
+      if (!self.images) return;
+      var r = self.canvas.getBoundingClientRect(), dpr = global.devicePixelRatio || 1;
+      self._resize(Math.round(r.width * dpr), Math.round(r.height * dpr));
+      self._watchDpr();
+    };
+    mq.addEventListener('change', this._h.dpr);
+  };
+
+  /* ---------- Loading ---------- */
+
+  P._loadFirst = function () {
+    var self = this, i = this.frame;
+    loadImage(this.o.frames[i], this.o.crossOrigin).then(function (img) {
+      if (!self.images) return;
+      self._store(i, img);
+    }, function () {
+      if (self.images) self.failed++;
+    }).then(function () {
+      if (!self.images) return;
+      if (self.o.lazy && 'IntersectionObserver' in global) {
+        self._io = new IntersectionObserver(function (entries) {
+          if (entries.some(function (en) { return en.isIntersecting; })) {
+            self._io.disconnect(); self._io = null;
+            self._preloadAll();
+          }
+        }, { rootMargin: '400px 0px' });
+        self._io.observe(self.root);
+      } else {
+        self._preloadAll();
+      }
+    });
+  };
+
+  P._preloadAll = function () {
+    if (this._preloading) return;
+    this._preloading = true;
+    var self = this, o = this.o;
+    var queue = priorityOrder(this.n, this.frame).filter(function (i) { return !self.images[i]; });
+    var cursor = 0;
+    this.failed = 0;
+
+    function worker() {
+      if (!self.images || cursor >= queue.length) return Promise.resolve();
+      var i = queue[cursor++];
+      return loadImage(o.frames[i], o.crossOrigin).then(function (img) {
+        if (self.images) self._store(i, img);
+      }, function (err) {
+        if (!self.images) return;
+        self.failed++;
+        if (global.console) console.warn('Product360Viewer:', err.message);
+      }).then(worker);
+    }
+
+    var workers = [];
+    for (var w = 0; w < Math.min(o.concurrency, queue.length); w++) workers.push(worker());
+    Promise.all(workers).then(function () {
+      if (!self.images) return;
+      self.root.setAttribute('data-ready', '');
+      if (!self.loaded) self.root.setAttribute('data-error', '');
+      self.root.dispatchEvent(new CustomEvent('pv360:ready', { detail: { loaded: self.loaded, failed: self.failed } }));
+      if (self.o.autoplay && !self.reducedMotion && !self.root.hasAttribute('data-interacted')) self.play();
+    });
+  };
+
+  P._store = function (i, img) {
+    this.images[i] = img;
+    this.loaded++;
+    var pct = Math.round((this.loaded / this.n) * 100);
+    this.bar.style.transform = 'scaleX(' + this.loaded / this.n + ')';
+    this.loader.setAttribute('aria-valuenow', pct);
+    if (!this.aspect) {
+      this.aspect = img.naturalWidth / img.naturalHeight;
+      this._computeFit();
+    }
+    // Redraw if this frame is now a closer match than what is on screen.
+    if (i === this.frame || !this.images[this.frame]) this._requestDraw();
+  };
+
+  P._ensureHiRes = function (i) {
+    var o = this.o, self = this;
+    if (!o.zoomFrames || this.zoom <= 1) return;
+    var entry = this.hiRes.get(i);
+    if (entry) { this.hiRes.delete(i); this.hiRes.set(i, entry); return; }  // LRU touch
+    entry = { img: null };
+    this.hiRes.set(i, entry);
+    loadImage(o.zoomFrames[i], o.crossOrigin).then(function (img) {
+      entry.img = img;
+      if (self.images && self.frame === i && self.zoom > 1) self._requestDraw();
+    }, function () { self.hiRes.delete(i); });
+    while (this.hiRes.size > o.hiResCache) this.hiRes.delete(this.hiRes.keys().next().value);
+  };
+
+  P._imageFor = function (i) {
+    if (this.zoom > 1) {
+      var h = this.hiRes.get(i);
+      if (h && h.img) return h.img;
+    }
+    if (this.images[i]) return this.images[i];
+    // Frame not in yet: show the nearest loaded neighbour instead of a blank canvas.
+    for (var d = 1; d <= this.n >> 1; d++) {
+      var a = this.images[mod(i + d, this.n)], b = this.images[mod(i - d, this.n)];
+      if (a) return a;
+      if (b) return b;
+    }
+    return null;
+  };
+
+  /* ---------- Rendering ---------- */
+
+  P._resize = function (w, h) {
+    if (!w || !h || (w === this.canvas.width && h === this.canvas.height)) return;
+    this.canvas.width = w;
+    this.canvas.height = h;
+    this._computeFit();
+    this._clampView();
+    this._draw();   // synchronous: resizing clears the canvas, so repaint before the next frame
+  };
+
+  P._computeFit = function () {
+    var vw = this.canvas.width, vh = this.canvas.height;
+    if (!this.aspect || !vw || !vh) return;
+    if (vw / vh > this.aspect) { this.fitH = vh; this.fitW = Math.round(vh * this.aspect); }
+    else { this.fitW = vw; this.fitH = Math.round(vw / this.aspect); }
+  };
+
+  P._requestDraw = function () {
+    if (this._raf) return;
+    var self = this;
+    this._raf = requestAnimationFrame(function () { self._raf = 0; self._draw(); });
+  };
+
+  P._draw = function () {
+    if (!this.images) return;
+    var ctx = this.ctx, vw = this.canvas.width, vh = this.canvas.height;
+    ctx.fillStyle = this.o.background;
+    ctx.fillRect(0, 0, vw, vh);
+    var img = this._imageFor(this.frame);
+    if (!img || !this.fitW) return;
+
+    var dw = this.fitW * this.zoom, dh = this.fitH * this.zoom;
+    var dx = vw / 2 - this.cx * dw, dy = vh / 2 - this.cy * dh;
+    if (this.zoom === 1) { dx = Math.round(dx); dy = Math.round(dy); }   // pixel-aligned at rest
+
+    // Draw only the visible crop straight from source pixels: one resample, no oversized intermediate.
+    var x0 = Math.max(0, dx), y0 = Math.max(0, dy);
+    var x1 = Math.min(vw, dx + dw), y1 = Math.min(vh, dy + dh);
+    if (x1 <= x0 || y1 <= y0) return;
+    var kx = img.naturalWidth / dw, ky = img.naturalHeight / dh;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, (x0 - dx) * kx, (y0 - dy) * ky, (x1 - x0) * kx, (y1 - y0) * ky, x0, y0, x1 - x0, y1 - y0);
+  };
+
+  /* ---------- State ---------- */
+
+  P._setPos = function (p) {
+    var n = this.n;
+    if (this.o.loop) p = mod(p, n);
+    else p = clamp(p, 0, n - 1);
+    this.pos = p;
+    var f = mod(Math.round(p), n);
+    if (f === this.frame) return;
+    this.frame = f;
+    this.stage.setAttribute('aria-valuenow', f);
+    this.stage.setAttribute('aria-valuetext', Math.round((f * 360) / n) + ' degrees');
+    if (this.zoom > 1) this._ensureHiRes(f);
+    this._requestDraw();
+    this.root.dispatchEvent(new CustomEvent('pv360:frame', { detail: { frame: f } }));
+  };
+
+  P._clampView = function () {
+    var vw = this.canvas.width, vh = this.canvas.height;
+    var dw = this.fitW * this.zoom, dh = this.fitH * this.zoom;
+    this.cx = dw <= vw ? 0.5 : clamp(this.cx, vw / 2 / dw, 1 - vw / 2 / dw);
+    this.cy = dh <= vh ? 0.5 : clamp(this.cy, vh / 2 / dh, 1 - vh / 2 / dh);
+  };
+
+  P._pan = function (dxCss, dyCss) {
+    var k = this.canvas.width / (this.stage.clientWidth || 1);
+    this.cx -= (dxCss * k) / (this.fitW * this.zoom);
+    this.cy -= (dyCss * k) / (this.fitH * this.zoom);
+    this._clampView();
+    this._requestDraw();
+  };
+
+  P._interacted = function () {
+    this.root.setAttribute('data-interacted', '');
+    this.pause();
+    this._stopAnim();
+    this._preloadAll();   // user engaged before the lazy trigger fired
+  };
+
+  P._stopAnim = function () {
+    if (this._anim) cancelAnimationFrame(this._anim);
+    this._anim = 0;
+  };
+
+  P._startInertia = function (v) {
+    if (Math.abs(v) < 0.005) return;      // frames per ms
+    var self = this, last = performance.now();
+    function step(t) {
+      var dt = Math.min(t - last, 50);
+      last = t;
+      self._setPos(self.pos + v * dt);
+      v *= Math.pow(0.94, dt / 16.67);
+      self._anim = Math.abs(v) > 0.002 ? requestAnimationFrame(step) : 0;
+    }
+    this._anim = requestAnimationFrame(step);
+  };
+
+  /* ---------- Input ---------- */
+
+  P._onDown = function (e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (this.pointers.size >= 2) return;
+    this.stage.focus({ preventScroll: true });
+    try { this.stage.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    this._interacted();
+
+    if (this.pointers.size === 1) {
+      this._tap = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+      this.samples = [{ t: e.timeStamp, p: this.pos }];
+      this.root.setAttribute('data-dragging', '');
+    } else {
+      var pts = Array.from(this.pointers.values());
+      this._tap = null;
+      this._pinch = { d: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1, z: this.zoom };
+    }
+  };
+
+  P._onMove = function (e) {
+    var p = this.pointers.get(e.pointerId);
+    if (!p) return;
+    var dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX;
+    p.y = e.clientY;
+    if (this._tap && Math.hypot(e.clientX - this._tap.x, e.clientY - this._tap.y) > 8) this._tap = null;
+
+    if (this.pointers.size >= 2) {
+      if (!this._pinch) return;
+      var pts = Array.from(this.pointers.values());
+      var d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      this.zoomTo(this._pinch.z * (d / this._pinch.d), (pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+      return;
+    }
+    if (this.zoom > 1) { this._pan(dx, dy); return; }
+
+    var framesPerPx = (this.n * this.o.dragRevolution) / (this.stage.clientWidth || 1);
+    this._setPos(this.pos + dx * framesPerPx * (this.o.reverse ? 1 : -1));
+    this.samples.push({ t: e.timeStamp, p: this.pos, raw: dx * framesPerPx * (this.o.reverse ? 1 : -1) });
+    var cutoff = e.timeStamp - 100;
+    while (this.samples.length > 2 && this.samples[0].t < cutoff) this.samples.shift();
+  };
+
+  P._onUp = function (e) {
+    if (!this.pointers.has(e.pointerId)) return;
+    this.pointers.delete(e.pointerId);
+    if (this.pointers.size === 1) {               // pinch → single-finger: continue without a jump
+      this._pinch = null;
+      this.samples = [];
+      return;
+    }
+    if (this.pointers.size) return;
+    this.root.removeAttribute('data-dragging');
+    this._pinch = null;
+    if (e.type !== 'pointerup') { this._tap = null; return; }
+
+    if (this._tap && e.timeStamp - this._tap.t < 300) {
+      this._onTap(e);
+    } else if (this.zoom === 1 && this.o.inertia && !this.reducedMotion && this.samples.length > 1 &&
+               e.timeStamp - this.samples[this.samples.length - 1].t < 60) {
+      // Velocity from summed raw deltas (unwrapped), so it is correct across the 0/n seam.
+      var s = this.samples, dist = 0;
+      for (var i = 1; i < s.length; i++) dist += s[i].raw;
+      var dt = s[s.length - 1].t - s[0].t;
+      if (dt > 0) this._startInertia(clamp(dist / dt, -0.15, 0.15));   // cap at ~150 frames/s
+    }
+    this._tap = null;
+    this.samples = [];
+  };
+
+  P._onTap = function (e) {
+    var last = this._lastTap;
+    if (last && e.timeStamp - last.t < 320 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 30) {
+      this._lastTap = null;
+      if (this.zoom > 1) this.resetZoom();
+      else this.zoomTo(this.o.doubleTapZoom, e.clientX, e.clientY);
+    } else {
+      this._lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY };
+    }
+  };
+
+  P._onWheel = function (e) {
+    // Plain wheel scrolls the page unless already zoomed; ctrl/⌘+wheel and trackpad pinch always zoom.
+    var pinch = e.ctrlKey || e.metaKey;
+    if (!pinch && this.zoom <= 1) return;
+    e.preventDefault();
+    this._interacted();
+    var delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+    this.zoomTo(this.zoom * Math.exp(-delta * (pinch ? 0.01 : 0.0015)), e.clientX, e.clientY);
+  };
+
+  P._onKey = function (e) {
+    var zoomed = this.zoom > 1, step = e.shiftKey ? 5 : 1, panPx = e.shiftKey ? 120 : 40;
+    switch (e.key) {
+      case 'ArrowLeft':
+      case 'ArrowRight':
+        var dir = e.key === 'ArrowRight' ? 1 : -1;
+        if (zoomed) this._pan(-dir * panPx, 0);
+        else this._setPos(Math.round(this.pos) + dir * step);
+        break;
+      case 'ArrowUp':
+      case 'ArrowDown':
+        if (!zoomed) return;
+        this._pan(0, (e.key === 'ArrowDown' ? -1 : 1) * panPx);
+        break;
+      case '+': case '=': this.zoomTo(this.zoom * this.o.zoomStep); break;
+      case '-': case '_': this.zoomTo(this.zoom / this.o.zoomStep); break;
+      case '0': this.resetZoom(); break;
+      case 'Home': this.goTo(0); break;
+      case 'End': this.goTo(this.n - 1); break;
+      case 'Escape': if (!zoomed) return; this.resetZoom(); break;
+      default: return;
+    }
+    e.preventDefault();
+    this._interacted();
+  };
+
+  P._onControl = function (e) {
+    var b = e.target.closest('[data-action]');
+    if (!b || b.disabled) return;
+    var a = b.getAttribute('data-action');
+    if (a === 'play') { var was = this.playing; this._interacted(); if (!was) this.play(); return; }
+    this._interacted();
+    if (a === 'zoom-in') this.zoomTo(this.zoom * this.o.zoomStep);
+    else if (a === 'zoom-out') this.zoomTo(this.zoom / this.o.zoomStep);
+    else if (a === 'reset') { this.resetZoom(); this.goTo(this.o.startFrame); }
+    else if (a === 'fullscreen') this.toggleFullscreen();
+  };
+
+  P._onFullscreenChange = function () {
+    var fs = (document.fullscreenElement || document.webkitFullscreenElement) === this.root;
+    this.btn.fullscreen.setAttribute('aria-pressed', String(fs));
+    this.btn.fullscreen.setAttribute('aria-label', fs ? 'Exit full screen' : 'Full screen');
+  };
+
+  /* ---------- Public API ---------- */
+
+  P.goTo = function (i) { this._stopAnim(); this._setPos(mod(i | 0, this.n)); };
+  P.next = function () { this.goTo(Math.round(this.pos) + 1); };
+  P.prev = function () { this.goTo(Math.round(this.pos) - 1); };
+
+  P.zoomTo = function (z, clientX, clientY) {
+    z = clamp(z, 1, this.o.maxZoom);
+    if (Math.abs(z - 1) < 0.01) z = 1;
+    if (this.fitW) {
+      var vw = this.canvas.width, vh = this.canvas.height;
+      var r = this.canvas.getBoundingClientRect(), k = vw / (r.width || 1);
+      var px = clientX == null ? vw / 2 : (clientX - r.left) * k;
+      var py = clientY == null ? vh / 2 : (clientY - r.top) * k;
+      // Keep the image point under the cursor/fingers fixed while scaling.
+      var u = this.cx + (px - vw / 2) / (this.fitW * this.zoom);
+      var v = this.cy + (py - vh / 2) / (this.fitH * this.zoom);
+      this.cx = u - (px - vw / 2) / (this.fitW * z);
+      this.cy = v - (py - vh / 2) / (this.fitH * z);
+    }
+    this.zoom = z;
+    this._clampView();
+    this.root.toggleAttribute('data-zoomed', z > 1);
+    this.zoomLabel.textContent = Math.round(z * 100) + '%';
+    this.btn.zoomOut.disabled = z <= 1;
+    this.btn.zoomIn.disabled = z >= this.o.maxZoom;
+    if (z > 1) this._ensureHiRes(this.frame);
+    this._requestDraw();
+  };
+
+  P.resetZoom = function () { this.cx = this.cy = 0.5; this.zoomTo(1); };
+
+  P.play = function () {
+    if (this.playing || this.reducedMotion) return;
+    if (this.zoom > 1) this.resetZoom();
+    this._stopAnim();
+    this.playing = true;
+    this.btn.play.setAttribute('aria-pressed', 'true');
+    this.btn.play.setAttribute('aria-label', 'Stop auto-rotate');
+    var self = this, last = performance.now(), dirSign = this.o.reverse ? -1 : 1;
+    function step(t) {
+      if (!self.playing) return;
+      self._setPos(self.pos + dirSign * (self.o.autoplayFps * Math.min(t - last, 50)) / 1000);
+      last = t;
+      self._anim = requestAnimationFrame(step);
+    }
+    this._anim = requestAnimationFrame(step);
+  };
+
+  P.pause = function () {
+    if (!this.playing) return;
+    this.playing = false;
+    this._stopAnim();
+    this.btn.play.setAttribute('aria-pressed', 'false');
+    this.btn.play.setAttribute('aria-label', 'Auto-rotate');
+  };
+
+  P.toggleFullscreen = function () {
+    var r = this.root;
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      var req = r.requestFullscreen || r.webkitRequestFullscreen;
+      if (req) {
+        var res = req.call(r);
+        if (res && res.catch) res.catch(function () {});
+      }
+    }
+  };
+
+  P.destroy = function () {
+    this.pause();
+    this._stopAnim();
+    if (this._raf) cancelAnimationFrame(this._raf);
+    if (this._ro) this._ro.disconnect();
+    if (this._io) this._io.disconnect();
+    if (this._dprMq) this._dprMq.removeEventListener('change', this._h.dpr);
+    var s = this.stage, h = this._h;
+    s.removeEventListener('pointerdown', h.down);
+    s.removeEventListener('pointermove', h.move);
+    s.removeEventListener('pointerup', h.up);
+    s.removeEventListener('pointercancel', h.up);
+    s.removeEventListener('lostpointercapture', h.up);
+    s.removeEventListener('wheel', h.wheel);
+    s.removeEventListener('keydown', h.key);
+    s.removeEventListener('contextmenu', h.noop);
+    s.removeEventListener('dragstart', h.noop);
+    this.controls.removeEventListener('click', h.ctl);
+    document.removeEventListener('fullscreenchange', h.fs);
+    document.removeEventListener('webkitfullscreenchange', h.fs);
+    this.images = null;
+    this.hiRes.clear();
+    this.root.innerHTML = '';
+    ['data-ready', 'data-error', 'data-zoomed', 'data-dragging', 'data-interacted'].forEach(function (a) {
+      this.root.removeAttribute(a);
+    }, this);
+  };
+
+  global.Product360Viewer = Product360Viewer;
+})(window);
+</script>
+
+<!-- ======================================================================
+     JS: frame input + initialisation
+     ====================================================================== -->
+<script>
+/*
+ * FRAME ARRAY STRUCTURE
+ * - One URL string per frame, in rotation order, equal angular steps covering a full 360°.
+ * - Index 0 is the starting view; the last frame must be one step before index 0 (no duplicate of frame 0).
+ * - All frames share identical dimensions, framing and background colour.
+ * - 72 frames = 5° steps (smooth); 36 = 10° steps (minimum recommended).
+ * - Absolute URLs (CDN) work too; set crossOrigin: 'anonymous' if the CDN is on another origin.
+ */
+var WATCH_BOX_FRAMES = [
+  'spin/frame_000.webp', 'spin/frame_001.webp', 'spin/frame_002.webp', 'spin/frame_003.webp',
+  'spin/frame_004.webp', 'spin/frame_005.webp', 'spin/frame_006.webp', 'spin/frame_007.webp',
+  'spin/frame_008.webp', 'spin/frame_009.webp', 'spin/frame_010.webp', 'spin/frame_011.webp',
+  'spin/frame_012.webp', 'spin/frame_013.webp', 'spin/frame_014.webp', 'spin/frame_015.webp',
+  'spin/frame_016.webp', 'spin/frame_017.webp', 'spin/frame_018.webp', 'spin/frame_019.webp',
+  'spin/frame_020.webp', 'spin/frame_021.webp', 'spin/frame_022.webp', 'spin/frame_023.webp',
+  'spin/frame_024.webp', 'spin/frame_025.webp', 'spin/frame_026.webp', 'spin/frame_027.webp',
+  'spin/frame_028.webp', 'spin/frame_029.webp', 'spin/frame_030.webp', 'spin/frame_031.webp',
+  'spin/frame_032.webp', 'spin/frame_033.webp', 'spin/frame_034.webp', 'spin/frame_035.webp',
+  'spin/frame_036.webp', 'spin/frame_037.webp', 'spin/frame_038.webp', 'spin/frame_039.webp',
+  'spin/frame_040.webp', 'spin/frame_041.webp', 'spin/frame_042.webp', 'spin/frame_043.webp',
+  'spin/frame_044.webp', 'spin/frame_045.webp', 'spin/frame_046.webp', 'spin/frame_047.webp',
+  'spin/frame_048.webp', 'spin/frame_049.webp', 'spin/frame_050.webp', 'spin/frame_051.webp',
+  'spin/frame_052.webp', 'spin/frame_053.webp', 'spin/frame_054.webp', 'spin/frame_055.webp',
+  'spin/frame_056.webp', 'spin/frame_057.webp', 'spin/frame_058.webp', 'spin/frame_059.webp',
+  'spin/frame_060.webp', 'spin/frame_061.webp', 'spin/frame_062.webp', 'spin/frame_063.webp',
+  'spin/frame_064.webp', 'spin/frame_065.webp', 'spin/frame_066.webp', 'spin/frame_067.webp',
+  'spin/frame_068.webp', 'spin/frame_069.webp', 'spin/frame_070.webp', 'spin/frame_071.webp'
+];
+
+/*
+ * Optional hi-res set for zoom (same length and order). Loaded per frame only when zoomed in.
+ * Example: var WATCH_BOX_ZOOM_FRAMES = WATCH_BOX_FRAMES.map(function (u) { return u.replace('spin/', 'spin@3x/'); });
+ */
+var WATCH_BOX_ZOOM_FRAMES = null;
+
+window.watchBoxViewer = new Product360Viewer(document.getElementById('watchbox-360'), {
+  frames: WATCH_BOX_FRAMES,
+  zoomFrames: WATCH_BOX_ZOOM_FRAMES,
+  alt: 'Green ribbed aluminium 6-slot watch box with glass lid',
+  maxZoom: 4,
+  autoplay: false
+});
+</script>
+</body>
+</html>
